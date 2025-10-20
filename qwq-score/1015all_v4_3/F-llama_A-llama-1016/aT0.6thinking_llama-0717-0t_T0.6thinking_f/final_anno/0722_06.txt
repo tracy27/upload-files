@@ -1,0 +1,385 @@
+Okay, I need to evaluate the predicted annotation against the ground truth for each component: Data, Analyses, and Results. Let's start with the Data component.
+
+First, check the structure. The ground truth has an array of data objects with id, omics, link, format, source, public_id. The predicted data also has those keys except some have null values. The structure seems valid JSON here. Both use arrays correctly. So structure score should be 100 for Data.
+
+Accuracy: Ground truth lists RNA-seq, Proteomics, Metabolomics, Genomics. The predicted has Genomics, Transcriptomics, Proteomics, Metabolomics, Epigenomics, miRNomics. Wait, the ground truth's first data entry is RNA-seq data, which is Transcriptomics? Hmm, maybe the user considered RNA-seq as Transcriptomics. But in the ground truth, it's labeled as RNA-seq data, while the prediction uses Transcriptomics. Are those semantically equivalent? Maybe yes, so that's okay. However, the ground truth has genomics data (lowercase 'g'), but the prediction uses Genomics (capitalized), which is a match. Then there's an extra Epigenomics and miRNomics in the prediction which aren't in the ground truth. That might be an inaccuracy because they're adding extra omics types not present. Also, the ground truth's fourth data is genomics, but the prediction's data_4 is Metabolomics, which is conflicting? Wait no, looking back:
+
+Wait, let me recheck:
+
+Ground Truth Data entries:
+- data_1: RNA-seq → probably Transcriptomics
+- data_2: Proteomics
+- data_3: Metabolomics
+- data_4: genomics (lowercase 'g')
+
+Prediction Data:
+- data_1: Genomics (so this is different from ground truth's data_4 which is genomics)
+Wait, the ground truth's data_4 is genomics data, but the predicted data_1 is Genomics. So that's conflicting. Because in ground truth, data_1 was RNA-seq, which the prediction called Transcriptomics. So the mapping here is off. The ground truth's data_4 (genomics) is now in the predicted as data_1 (Genomics). So that's a misalignment in which data corresponds to which omics type. That would reduce accuracy.
+
+Additionally, the prediction added two extra omics: Epigenomics and miRNomics which aren't in the ground truth. So accuracy is affected both by the swapped assignments and the extra entries.
+
+Completeness: The ground truth has four data entries, the prediction has six. The prediction includes two more, so completeness is penalized for adding extra. Also, the existing ones may not all be present correctly. The original data_4 in ground truth (genomics) is now assigned to data_1 in prediction, which was originally RNA-seq in ground truth. So that's a mismatch. So accuracy is lower here.
+
+Hmm, perhaps the accuracy score for Data is around 60? Maybe 50? Let me think again. The core issue is that the omics types don't align properly. The ground truth's RNA-seq (transcriptomics) is correctly mapped, but the genomics data is misplaced. The other two (proteomics and metabolomics) are correctly present. But then the prediction added two new omics which are not in the ground truth, so that's inaccuracy. Plus, the order and IDs are mixed up. So maybe accuracy is about 66% (since 4 correct vs total of 6 in prediction?), but considering the mismatches and additions, maybe 50%.
+
+Structure is perfect, so Data component's score would be Structure (100) plus Accuracy and Completeness. Since accuracy and completeness are both around 50%, maybe total Data score around 66.66? Or perhaps the criteria says to do global similarity. So, comparing all data entries, how much overlap is there?
+
+The ground truth has four entries, prediction has six. The overlapping ones are:
+
+- Genomics (prediction data_1) vs ground truth data_4 (genomics) → match but ID is wrong (since ground truth data_4 is assigned to another ID in prediction). But per note, IDs don't matter. So content-wise, the genomics is present in both. So that's one match.
+
+Transcriptomics (pred data_2) matches RNA-seq (ground truth data_1). So that's another.
+
+Proteomics (pred data_3) matches ground truth data_2. Correct.
+
+Metabolomics (pred data_4) matches ground truth data_3. Correct.
+
+Then the additional Epigenomics and miRNomics in pred are extra. So 4 correct out of 6 in pred, but ground truth had 4. So the similarity is 4/4 (for the existing) but the pred has 2 extras. So maybe similarity is (4)/(4+2) = 66%, but the ground truth's total is 4, so the overlap is 4, so the similarity would be (4/(4 + 2 (extras) + 0 (missing?)) )? Not sure. Alternatively, the formula is (number of common items) / (total items in GT + total in Pred - common)/something else? Maybe better to think in terms of Jaccard index? (common elements over union). Common elements are 4, union is 6 (since GT has 4, Pred has 6, but two extras). So Jaccard is 4/6 ≈ 66%. So maybe 66% accuracy? So 66 out of 100. But the presence of the extra data entries would penalize completeness. 
+
+Alternatively, the criteria say to count semantically equivalent objects. So if the extra are not in GT, they are penalized. So completeness is (4/4) * 100 but since there are extra, completeness might be (4/(4+2))? Not sure. The instructions mention "penalize for any missing objects or extra irrelevant objects." So if the prediction has extras beyond what's in GT, that reduces completeness. So the completeness score would be (4 correct)/(4 total in GT) = 100, but minus penalty for adding 2 extras. So maybe completeness is 100 - (2/6)*100? Not sure. The exact calculation isn't specified, so maybe the global similarity is the way to go. 
+
+Overall, the Data component's final score would be around 66 or so. Let me hold that thought and move to Analyses.
+
+For Analyses component:
+
+Structure: Check if the predicted analyses are valid JSON. Looking at the predicted, each analysis has id, analysis_name, analysis_data, label (but label is null). The ground truth's analyses have similar structure except they don't have 'label'. The structure in the prediction is still valid JSON, so structure score is 100.
+
+Accuracy: Compare each analysis in prediction with GT. 
+
+Ground truth Analyses:
+- analysis_1: genomic analysis (on data_4)
+- analysis_2: Protein expression analysis (data_2)
+- analysis_3: Transcriptomic analysis (data_1)
+- analysis_4: whole genome expression analysis (data_1)
+- analysis_5: Proteomics analysis (data_2)
+- analysis_6: protein-protein interaction networks analysis (data_2)
+- analysis_6 (duplicate?) Wait, the ground truth has two analysis_6 entries? Looking back:
+
+Ground truth's analyses have analysis_6 listed twice with different names. Wait no, let me check again:
+
+Ground truth analyses list:
+analysis_6 has "protein-protein interaction networks analysis" with data_2, and another analysis_6 (same ID?) with "whole genome miRNA profiling analysis" using data_1. Oh wait, that's a duplicate ID. That's actually invalid, but in the ground truth provided, there's a mistake here. The user provided the ground truth, so perhaps that's a typo. Assuming that's an error in the ground truth, but we proceed as given.
+
+In the predicted analyses:
+
+analysis_1: Differential Gene Expression Analysis (data_2, which in ground truth is proteomics data, but here assigned to transcriptomics data_2). Wait, in ground truth's data_2 is Proteomics, but in prediction, data_2 is Transcriptomics. So analysis_1 in prediction uses data_2 (Transcriptomics) which is correct if the analysis is differential gene expression (which fits transcriptomics). So that's accurate.
+
+Analysis_2: Protein-Protein Interaction Network Analysis (using data_3, which is Proteomics in ground truth). That's correct, as the ground truth has analysis_6 (protein-protein) on data_2 (proteomics). Wait, in ground truth analysis_6 uses data_2 (proteomics), but prediction uses data_3 (Proteomics data in prediction's data_3 is Proteomics, so that's correct. So the analysis is on the right data.
+
+Analysis_3: Metabolic Pathway Analysis (data_4, which is metabolomics in both). So that's accurate.
+
+Analysis_4: Epigenetic Modif. Analysis on data_5 (Epigenomics), which is an extra in data, so not in GT. So this is an extra analysis not present in GT. 
+
+Analysis_5: MicroRNA Expression Profiling (data_6, miRNomics, which is an extra data type). The ground truth's analysis_6 (second instance?) has miRNA profiling on data_1 (genomics?), but the GT's analysis_6 (the second entry with ID 6) uses data_1 (which in GT was RNA-seq data). So if the prediction's analysis_5 uses data_6 (miRNomics) which is an extra data, but the analysis name is similar to the ground truth's miRNA profiling analysis. However, since the data used is different (GT uses data_1, pred uses data_6), this might be inaccurate. But the ground truth's analysis_6 (the second one) was on data_1 (RNA-seq), so maybe that's a discrepancy.
+
+Analysis_6: Multi-Omics Integration using all data. The ground truth doesn't have such an analysis. So that's an extra.
+
+So accuracy-wise, the accurate analyses are:
+
+- Analysis_1 (correct, but assigned to data_2 which is now Transcriptomics instead of Proteomics in GT's data? Wait no. Wait in the prediction, data_2 is Transcriptomics (RNA-seq equivalent), so analysis_1 (differential gene expr) is appropriate here. In GT's analysis_3 and 4 are on data_1 (RNA-seq). So prediction's analysis_1 is correct.
+
+Analysis_2 is correct (protein-protein on proteomics).
+
+Analysis_3 is correct (metabolic pathway on metabolomics).
+
+Analysis_4 and 5 and 6 are extra. The ground truth's analyses include genomic analysis (analysis_1 on data_4), which in prediction isn't directly present. The ground truth's analysis_1 (genomic analysis on data_4) isn't covered in the prediction's analyses, since the closest is analysis_1 in pred is diff expr on data_2. So that's a missing analysis in prediction.
+
+Also, the ground truth's analysis_5 (Proteomics analysis on data_2) is covered in prediction's analysis_2? No, analysis_2 is protein-protein interaction. The proteomics analysis in GT (analysis_5) isn't addressed in the prediction. So that's another missing one.
+
+The ground truth's analysis_3 (Transcriptomic analysis on data_1) is covered by pred's analysis_1 (diff expr on data_2, but data_2 is transcriptomics now, so that's correct).
+
+The second analysis_6 in GT (miRNA profiling on data_1) is somewhat addressed in pred's analysis_5, but the data used is different (data_6 vs data_1). So maybe partially correct but not exact.
+
+So accuracy calculation:
+
+Total analyses in GT: 7 (though analysis_6 is duplicated ID, but assuming two entries). But maybe the user made a mistake, but we take as is. Prediction has 6 analyses. 
+
+Correct analyses in prediction:
+
+- Analysis_1 (diff expr on data_2): matches GT's analysis_3 and 4 (transcriptomic and whole genome expr), so counts as correct.
+
+- Analysis_2 (protein-protein on data_3): matches GT's analysis_6 (first instance)
+
+- Analysis_3 (metabolic on data_4): matches GT's data_3's metabolomics, so correct.
+
+Other analyses in GT: analysis_1 (genomic on data_4), analysis_2 (protein expr on data_2), analysis_5 (proteomics analysis on data_2), and the second analysis_6 (miRNA on data_1). These are not fully covered in prediction. The prediction lacks analysis_1 (genomic analysis) and analysis_5 (proteomics analysis), but includes extra ones. 
+
+So the accurate analyses in prediction are 3 out of 6, but also missing some from GT. The ground truth has 7 analyses (assuming the two analysis_6 are separate), but some are not matched. 
+
+This is getting complicated. Maybe better to calculate how many of the prediction's analyses are accurate and how many are extra. 
+
+The accurate ones are 3 (analysis_1,2,3). The others (4,5,6) are either incorrect or extra. The prediction misses some GT analyses like genomic analysis (GT analysis_1) and proteomics analysis (analysis_5). 
+
+Thus, accuracy could be (3/7)*100 ≈42%, but considering the structure and completeness... Alternatively, using the same approach as before: 
+
+Common analyses between GT and Pred: 3 accurate ones. Total in GT is 7, total in Pred is 6. The similarity would be (3)/(7+6 -3)= 3/10 = 30%? Not sure. Alternatively, since accuracy is based on how well the prediction matches GT, with semantic equivalence. 
+
+Maybe the accuracy score is around 40-50. Completeness is penalized for missing some and adding extras. So overall, the Analyses component might get a low score, like 40 or so.
+
+Moving to Results:
+
+Structure: The predicted results have analysis_id, metrics (null), value (null), features. The ground truth's results have the same structure except metrics and value are empty strings. The structure is valid, so 100.
+
+Accuracy: Compare each result entry. 
+
+Ground truth Results:
+
+Three entries:
+
+- analysis_1 (genomic analysis) with features ["SOD1","EPHA4", etc.]
+
+- analysis_5 (Proteomics analysis) with features ["TDP-43", "C9ORF72"...]
+
+- another analysis_5 (maybe a second entry?) with ["IL-10", etc.]
+
+Prediction's Results:
+
+Six entries, each linked to their analyses. 
+
+Looking at the analysis_id mappings:
+
+GT's analysis_1 (genomic analysis on data_4) has features like SOD1 etc. In prediction's analysis_1 (diff expr analysis), the features are ["Cell Death Pathways", ...]. These are not matching the genes/proteins in GT. So that's inaccurate.
+
+GT's analysis_5 (Proteomics analysis) has features like TDP-43, which is in pred's analysis_2 (protein-protein network) features. But analysis_5 in pred is microRNA analysis. 
+
+Hmm, need to map each analysis_id in results to see if the features correspond to the correct analysis.
+
+Ground truth results linked to analysis_5 (two entries) have features related to proteins and cytokines. The prediction's analysis_2 (protein-protein) has features including TDP-43, FUS, SOD1, which are similar to GT's analysis_5's features (TDP-43, C9ORF72, SOD1/FUS). So that's accurate.
+
+Another GT result under analysis_5 has IL-10 etc., which might relate to cytokines, but in the prediction's analysis_2's features don't include those. So partial match.
+
+Prediction's analysis_5 (microRNA) has features like miR-206 etc., which are not present in GT's results. The GT's analysis_6 (second instance, miRNA) has features like rs12608932 (a SNP), but that's in a different analysis. Not sure.
+
+The multi-omics integration (analysis_6 in pred) has features like biomarkers, which might not directly match anything in GT.
+
+So accuracy here: For the first result (analysis_1 in pred), the features don't match GT's analysis_1 features. The analysis_2 in pred (linked to protein-protein) has some overlapping features (TDP-43, etc.) with GT's analysis_5. So that's a correct mapping. The second analysis_5 in GT has some features not captured. The other entries in pred may not have equivalents in GT.
+
+Counting accurate results:
+
+- analysis_2's features partially match analysis_5 in GT → maybe 0.5 accuracy here.
+
+- analysis_3's metabolic pathway has "Lipid Metabolism" which isn't in GT's results (GT's metabolomics analysis isn't in results?), so maybe not.
+
+- analysis_4's DNA methylation changes are not in GT.
+
+- analysis_5's miR features not in GT.
+
+- analysis_6's features are new.
+
+Only analysis_2 has some overlap, but not fully. The rest are either incorrect or extra.
+
+So accuracy might be low, around 20-30%.
+
+Completeness: GT has three results, pred has six. Missing some and adding extras. So completeness penalized.
+
+Overall, the Results component might score around 30.
+
+Now compiling all:
+
+Data: Structure 100, Accuracy ~66, Completeness ~66 (since 4 correct out of 6 total in pred, but ground has 4). Overall maybe 66.
+
+Analyses: Structure 100, Accuracy ~40, Completeness ~40 (due to missing and extra), so 40.
+
+Results: Structure 100, Accuracy ~20, Completeness ~33 (3 in GT vs 6 in pred, 1 partially correct). Maybe 25.
+
+But need to ensure the global similarity approach. For each component, the final score is based on the overall proportion of similar content.
+
+Data: Overlap is 4 common entries out of GT's 4, but prediction has 2 extra. So the total possible is 4, but with 2 extra, so the similarity might be (4 / (4+2)) *100 = 66.67. So Data score 67.
+
+Analyses: How much of the analyses are common? 3 correct out of GT's 7 and Pred's 6. Jaccard index 3/(7+6-3)= 3/10=30 → 30. But maybe considering that some analyses are partially correct. Alternatively, the accurate part is 3/7 (GT's side), so 42.8%. Or considering that the prediction has 6 analyses, and 3 are accurate, so 3/6*100=50. But since GT has more, maybe 3/7≈42.8. So 40-50. Let's say 40.
+
+Results: The accurate portion is 1 out of 3 in GT (analysis_2 in pred matches analysis_5 in GT partially). So 1/3≈33.3%. Plus some partial credit for the second analysis_5's features. Maybe 40. But since the rest are off, maybe 30.
+
+Final scores:
+
+Data: ~67
+
+Analyses: ~40
+
+Results: ~30
+
+But need to adjust for deductions in each aspect. Let me formalize:
+
+DATA:
+
+Structure: 100 (valid JSON).
+
+Accuracy: The omics types are mostly correct except for the swap between data_1 and data_4. The prediction includes two extra omics (epigenomics and miRNomics). So the accurate parts are 4 out of 6 entries (since epigenomics and miRNomics are incorrect additions). The RNA-seq vs transcriptomics is acceptable. Genomics is present but ID shifted. So accuracy is 4/6≈66.67.
+
+Completeness: All GT data are present except none missing (they're just reordered and ID-mismatched but content correct). But the prediction adds two extra, so completeness is (4/4) * (penalty for extras). The completeness score would be (4/(4+2))*100? Or since completeness is about covering GT, it's 100% coverage (all GT present) but minus penalty for extras. If the penalty is proportional, maybe 100 - (2/6)*100 = 66.67. Thus, overall data score: (structure 100 + accuracy 66.67 + completeness 66.67)/3? No, the criteria say to base the component's final score on global similarity. So final data score is 66.67.
+
+ANALYSES:
+
+Structure: 100.
+
+Accuracy: Out of GT's analyses, how many are accurately represented?
+
+GT has 7 analyses (including the duplicated analysis_6):
+
+1. Genomic analysis (data_4)
+2. Protein expr (data_2)
+3. Transcriptomic (data_1)
+4. Whole genome expr (data_1)
+5. Proteomics analysis (data_2)
+6. PPI (data_2)
+7. miRNA (data_1)
+
+Prediction's analyses:
+
+1. Diff expr (data_2) – matches GT's 3 &4 (transcriptomic and whole genome expr)
+2. PPI (data_3) – matches GT's 6 (data_2 vs data_3, but data_3 is proteomics in prediction, which matches the data used in GT's analysis_6 (data_2, which is proteomics))
+3. Metabolic (data_4) – matches GT's metabolomics analysis (not in GT analyses? Wait, GT's data_3 is metabolomics, but the analyses section for metabolomics? The ground truth's analyses don't have a metabolic pathway analysis. Looking back, the ground truth's analyses only go up to analysis_6 (miRNA) and the analyses for metabolomics data (data_3) are not listed. So the prediction's analysis_3 (metabolic pathway on data_4) is an extra analysis not present in GT. Wait, no, in the ground truth, the analyses section does not include a metabolic pathway analysis. Therefore, the prediction's analysis_3 is an addition not in GT. 
+
+Wait, this complicates things. Let me re-express GT analyses:
+
+The ground truth's analyses are all listed in the analyses array. The data_3 (metabolomics) is not used in any analysis in GT. So the prediction's analysis_3 (metabolic pathway on data_4) is an extra analysis not present in GT. 
+
+So the accurate analyses in prediction are:
+
+- analysis_1 (diff expr on data_2) corresponds to GT's analysis_3 and 4 (transcriptomic and whole genome expr). So that's correct.
+
+- analysis_2 (PPI on data_3) corresponds to GT's analysis_6 (protein-protein on data_2). Data difference? Data_3 in prediction is Proteomics (as per data entries), which matches GT's data_2 (proteomics). So the analysis is correct in content, even though the data ID is different due to data reordering. So that's accurate.
+
+- The rest (analysis_3,4,5,6) are extra or incorrect.
+
+Thus, accurate analyses are 2 out of 7 in GT. But prediction has 6 analyses, so the overlap is 2. 
+
+Jaccard Index: 2/(7+6-2)=2/11≈18%. That's low. Alternatively, the accuracy is 2/7≈28.57%.
+
+Completeness: The prediction misses GT's analysis_1 (genomic), analysis_2 (protein expr), analysis_5 (proteomics), and analysis_7 (miRNA). So missing 4, and has 2 correct and 4 extras. So completeness is (2/7)*100≈28.57% for coverage, but penalizing for the 4 extras. 
+
+Global similarity would be low. Maybe 30%.
+
+RESULTS:
+
+Structure: 100.
+
+Accuracy: The only accurate result is analysis_2 in prediction (protein-protein) having features like TDP-43 which matches part of GT's analysis_5 features. The other results don't align. So 1 out of 6 in prediction. But GT has 3 results. So similarity is min(1,3)/max(3,6)? Not sure. The accurate portion is maybe 1/3 (since GT's 3 results have some overlap in one). So ~33%.
+
+Completeness: Prediction has more, so completeness is (1/3)*100 ≈33% but penalized for extras.
+
+Final scores based on global similarity:
+
+Data: ~67
+
+Analyses: ~30
+
+Results: ~33
+
+But maybe rounding to nearest 10:
+
+Data: 67 → 67
+
+Analyses: 30 → 30
+
+Results: 33 → 33
+
+Alternatively, maybe the Data score is higher because all existing data entries (except the two extra) are present. Since the ground truth's four are all there (even with ID swaps but content correct), so accuracy is 100% on the existing, but completeness is penalized for adding two. So data score: (4/6)*100≈67.
+
+Analyses: only 2 accurate out of 6 predictions, but compared to GT's 7, it's 2/7. Maybe 28.5 rounds to 30.
+
+Results: 1/3 accurate, so 33.
+
+Thus, the final scores would be:
+
+Data: 67
+
+Analyses: 30
+
+Results: 33
+
+But let me check again for Analyses:
+
+Wait, the prediction's analysis_1 covers GT's analyses 3 and 4 (both transcriptomic-related), so that's one analysis in pred covering two in GT? Not sure if that counts as one or two. But since they are separate analyses in GT, it's only one in pred, so maybe counts as one correct.
+
+Similarly, analysis_2 in pred matches analysis_6 in GT (one correct). So total 2 correct out of GT's 7, giving 28.5.
+
+Yes, so Analyses score is 30.
+
+So the final answer would be:
+
+{
+    "Final Scores": {
+        "Data": 67,
+        "Analyses": 30,
+        "Results": 33
+    }
+}
+
+But maybe the user expects round numbers. Alternatively, perhaps I over-penalized. Let me think again for Analyses:
+
+If the prediction's analysis_1 covers two GT analyses (3 and4), maybe that counts as 2 correct? If so, then 2+1 (analysis_2) =3/7≈42.85. So 43.
+
+Then Analyses score could be 40.
+
+Results: The analysis_2 in prediction matches part of GT's analysis_5's features. So maybe 0.5 accuracy for that, and another partial in analysis_5's features? Not sure. Maybe 20% accuracy.
+
+Alternatively, maybe the Results score is 25.
+
+Adjusting:
+
+Data:67
+
+Analyses:40
+
+Results:25
+
+Alternatively, the results have one accurate entry (analysis_2) out of GT's three, so 33%, thus 33.
+
+I think I'll go with:
+
+Data: 67
+
+Analyses: 30
+
+Results: 33
+</think>
+
+{
+    "Final Scores": {
+        "Data": 67,
+        "Analyses": 30,
+        "Results": 33
+    }
+}
+
+### Explanation:
+#### **Data Component (Score: 67)**  
+**Structure:** Valid JSON with proper key-value structures (100%).  
+**Accuracy:**  
+- Matches ground truth's RNA-seq (transcriptomics), proteomics, metabolomics, and genomics data types.  
+- Mismatches include the misassignment of **Genomics** to `data_1` (should map to `data_4` in ground truth) and the inclusion of **Epigenomics** and **miRNomics**, which are absent in the ground truth.  
+- **Accuracy Score: ~67%** (4/6 entries semantically correct).  
+**Completeness:**  
+- Covers all ground truth data types but adds two extra entries (Epigenomics and miRNomics), reducing completeness.  
+- **Completeness Score: ~67%** (4/4 ground truth entries present but penalized for extra entries).  
+
+---
+
+#### **Analyses Component (Score: 30)**  
+**Structure:** Valid JSON (100%).  
+**Accuracy:**  
+- Only two analyses align with the ground truth:  
+  1. **Differential Gene Expression Analysis** (matches transcriptomic analyses in ground truth).  
+  2. **Protein-Protein Interaction Network Analysis** (matches the ground truth's protein-protein analysis).  
+- Misses critical analyses (e.g., genomic analysis, proteomics analysis) and adds extraneous ones (e.g., Epigenetic Modification, miRNA Expression).  
+- **Accuracy Score: ~30%** (2/7 ground truth analyses matched).  
+**Completeness:**  
+- Misses four ground truth analyses and adds four extras.  
+- **Completeness Score: ~30%** (poor coverage of required analyses).  
+
+---
+
+#### **Results Component (Score: 33)**  
+**Structure:** Valid JSON (100%).  
+**Accuracy:**  
+- Only the **Protein-Protein Interaction Network Analysis** features (`TDP-43`, `FUS`, `SOD1`) partially align with the ground truth's proteomics analysis results.  
+- Other entries lack semantic equivalence (e.g., genomic results in ground truth not reflected in predictions).  
+- **Accuracy Score: ~33%** (1/3 ground truth results partially matched).  
+**Completeness:**  
+- Misses most ground truth results (e.g., genetic variants like `rs12608932`) and adds extras unrelated to the ground truth.  
+- **Completeness Score: ~33%** (1/3 ground truth results addressed).  
+
+--- 
+
+Scores reflect structural validity but penalize inaccuracies and incomplete/irrelevant additions across all components.
